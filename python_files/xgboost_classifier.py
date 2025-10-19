@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-import xgboost as xgb # type: ignore
+import xgboost as xgb #type:ignore
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
@@ -10,43 +10,13 @@ from sklearn.metrics import (
     roc_auc_score,
     confusion_matrix,
     classification_report,
+    precision_recall_curve
 )
 
+from generate_splits import generate_data
 
-positive_file = "DATA/2mers/mito_positive.csv"
-negative_file = "DATA/2mers/mito_negative.csv"
 random_seed =  42
 
-def generate_data():
-    mito_positive = pd.read_csv(positive_file)
-    mito_positive["mito_positive"] = 1
-
-    mito_negative = pd.read_csv(negative_file)
-    mito_negative["mito_positive"] = 0
-
-
-    combined = pd.concat([mito_positive, mito_negative])
-
-    # select features and labels
-    X = combined.drop(columns=["mito_positive","ID"])
-    y = combined["mito_positive"].astype(int)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-            X,
-            y,
-            test_size=0.2, 
-            stratify = y,
-            random_state=random_seed
-            )
-    X_train, X_val, y_train, y_val = train_test_split(
-            X_train,
-            y_train,
-            test_size=0.2, 
-            stratify = y_train,
-            random_state=random_seed
-            )
-
-    return X_train, X_test, X_val, y_train, y_test, y_val
 
 def train_xgb(X_train, X_val, y_train, y_val):
     pos = int((y_train == 1).sum())
@@ -63,11 +33,11 @@ def train_xgb(X_train, X_val, y_train, y_val):
             reg_lambda=1.0,
             tree_method="hist",
             device="cuda",
-            eval_metric="logloss",
             n_jobs=-1,
             random_state=random_seed,
-            scale_pos_weight=scale_pos_weight,
-            early_stopping_rounds=50
+            scale_pos_weight=scale_pos_weight * 0.75,
+            early_stopping_rounds=50,
+            eval_metric="aucpr"
             )
 
     clf.fit(
@@ -78,7 +48,17 @@ def train_xgb(X_train, X_val, y_train, y_val):
 
     return clf
 
-def evaluate_model(clf, X_test, y_test):
+def evaluate_model(clf, X_test, X_val, y_test, y_val):
+    # threshold to maximize F1 for the positive class:
+    #proba = clf.predict_proba(X_val)[:,1]
+    #prec, rec, thresh = precision_recall_curve(y_val, proba)
+    #f1 = 2 * prec[:-1] * rec[:-1] / (prec[:-1] + rec[:-1] + 1e-12)
+    #best_idx = np.argmax(f1)
+    #best_thr = thresh[best_idx]
+    #print("Best threshold for F1:", best_thr)
+    #proba = clf.predict_proba(X_test)[:,1]
+    #pred = (proba >= best_thr).astype(int)
+    
     proba = clf.predict_proba(X_test)[:,1]
     pred = (proba >= 0.5).astype(int)
 
@@ -122,8 +102,8 @@ def main():
 
     clf = train_xgb(X_train, X_val, y_train, y_val)
 
-    evaluate_model(clf, X_test, y_test)
-    show_top_features(clf, top_k=30)
+    evaluate_model(clf, X_test, X_val, y_test, y_val)
+    #show_top_features(clf, top_k=30)
 
     # Save the model (JSON is portable; you can also use joblib/pickle)
     #model_path = "xgb_mito.json"
