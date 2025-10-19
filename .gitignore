@@ -1,5 +1,5 @@
 # --- Project data ---
-/DATA/           # ignore the root DATA directory
+/DATA/
 
 # --- Python ---
 __pycache__/
